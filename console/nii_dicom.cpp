@@ -1142,7 +1142,7 @@ int dcmStrManufacturer (const int lByteLength, unsigned char lBuffer[]) {//read 
 	return ret;
 } //dcmStrManufacturer
 
-float csaMultiFloat (unsigned char buff[], int nItems, float Floats[], int *ItemsOK) {
+static float csaMultiFloat (unsigned char buff[], int bufferSize, int nItems, float Floats[], int *ItemsOK) {
     //warning: lFloats indexed from 1! will fill lFloats[1]..[nFloats]
     //if lnItems == 1, returns first item, if lnItems > 1 returns index of final successful conversion
     TCSAitem itemCSA;
@@ -1151,6 +1151,9 @@ float csaMultiFloat (unsigned char buff[], int nItems, float Floats[], int *Item
     Floats[1] = 0;
     int lPos = 0;
     for (int lI = 1; lI <= nItems; lI++) {
+        if ((lPos + sizeof(itemCSA)) > bufferSize) {
+            break;
+        }
         memcpy(&itemCSA, &buff[lPos], sizeof(itemCSA));
         lPos +=sizeof(itemCSA);
 
@@ -1159,6 +1162,9 @@ float csaMultiFloat (unsigned char buff[], int nItems, float Floats[], int *Item
             nifti_swap_4bytes(1, &itemCSA.xx2_Len);
 
         if (itemCSA.xx2_Len > 0) {
+            if ((lPos + sizeof(char) * itemCSA.xx2_Len) > bufferSize) {
+                break;
+            }
             char * cString = (char *)malloc(sizeof(char) * (itemCSA.xx2_Len));
             memcpy(cString, &buff[lPos], itemCSA.xx2_Len); //TPX memcpy(&cString, &buff[lPos], sizeof(cString));
             lPos += ((itemCSA.xx2_Len +3)/4)*4;
@@ -1302,29 +1308,20 @@ int readCSAImageHeader(unsigned char *buff, int lLength, struct TCSAdata *CSA, i
         }
         memcpy(&tagCSA, &buff[lPos], sizeof(tagCSA)); //read tag
         lPos +=sizeof(tagCSA);
+        int bufferSize = lLength - lPos;
         // Storage order is always little-endian, so byte-swap required values if necessary
         if (!littleEndianPlatform())
             nifti_swap_4bytes(1, &tagCSA.nitems);
         if (isVerbose > 1) //extreme verbosity: show every CSA tag
         	printMessage("   %d CSA of %s %d\n",lPos, tagCSA.name, tagCSA.nitems);
-        /*if (true) {
-        	printMessage("%d CSA of %s %d\n",lPos, tagCSA.name, tagCSA.nitems);
-        	float * vals = (float *)malloc(sizeof(float) * (tagCSA.nitems + 1));
-			csaMultiFloat (&buff[lPos], tagCSA.nitems,vals, &itemsOK);
-			if (itemsOK > 0) {
-				for (int z = 1; z <= itemsOK; z++) //find index and value of fastest time
-                    printMessage("%g\t",  vals[z]);
-            	printMessage("\n");
-            }
-        }*/
 
         if (tagCSA.nitems > 0) {
             if (strcmp(tagCSA.name, "ImageHistory") == 0)
                 CSA->isPhaseMap =  csaIsPhaseMap(&buff[lPos], tagCSA.nitems);
             else if (strcmp(tagCSA.name, "NumberOfImagesInMosaic") == 0)
-                CSA->mosaicSlices = (int) round(csaMultiFloat (&buff[lPos], 1,lFloats, &itemsOK));
+                CSA->mosaicSlices = (int) round(csaMultiFloat (&buff[lPos], bufferSize, 1, lFloats, &itemsOK));
             else if (strcmp(tagCSA.name, "B_value") == 0) {
-                CSA->dtiV[0] = csaMultiFloat (&buff[lPos], 1,lFloats, &itemsOK);
+                CSA->dtiV[0] = csaMultiFloat (&buff[lPos], bufferSize, 1, lFloats, &itemsOK);
                 if (CSA->dtiV[0] < 0.0) {
                     printWarning("(Corrupt) CSA reports negative b-value! %g\n",CSA->dtiV[0]);
                     CSA->dtiV[0] = 0.0;
@@ -1332,27 +1329,27 @@ int readCSAImageHeader(unsigned char *buff, int lLength, struct TCSAdata *CSA, i
                 CSA->numDti = 1; //triggered by b-value, as B0 images do not have DiffusionGradientDirection tag
             }
             else if ((strcmp(tagCSA.name, "DiffusionGradientDirection") == 0) && (tagCSA.nitems > 2)){
-                CSA->dtiV[1] = csaMultiFloat (&buff[lPos], 3,lFloats, &itemsOK);
+                CSA->dtiV[1] = csaMultiFloat (&buff[lPos], bufferSize, 3, lFloats, &itemsOK);
                 CSA->dtiV[2] = lFloats[2];
                 CSA->dtiV[3] = lFloats[3];
                 if (isVerbose)
                     printMessage("DiffusionGradientDirection %f %f %f\n",lFloats[1],lFloats[2],lFloats[3]);
             } else if ((strcmp(tagCSA.name, "SliceNormalVector") == 0) && (tagCSA.nitems > 2)){
-                CSA->sliceNormV[1] = csaMultiFloat (&buff[lPos], 3,lFloats, &itemsOK);
+                CSA->sliceNormV[1] = csaMultiFloat (&buff[lPos], bufferSize, 3, lFloats, &itemsOK);
                 CSA->sliceNormV[2] = lFloats[2];
                 CSA->sliceNormV[3] = lFloats[3];
                 if (isVerbose > 1)
                     printMessage("   SliceNormalVector %f %f %f\n",CSA->sliceNormV[1],CSA->sliceNormV[2],CSA->sliceNormV[3]);
             } else if (strcmp(tagCSA.name, "SliceMeasurementDuration") == 0)
-                CSA->sliceMeasurementDuration = csaMultiFloat (&buff[lPos], 3,lFloats, &itemsOK);
+                CSA->sliceMeasurementDuration = csaMultiFloat (&buff[lPos], bufferSize, 3, lFloats, &itemsOK);
             else if (strcmp(tagCSA.name, "BandwidthPerPixelPhaseEncode") == 0)
-                CSA->bandwidthPerPixelPhaseEncode = csaMultiFloat (&buff[lPos], 3,lFloats, &itemsOK);
+                CSA->bandwidthPerPixelPhaseEncode = csaMultiFloat (&buff[lPos], bufferSize, 3, lFloats, &itemsOK);
             else if ((strcmp(tagCSA.name, "MosaicRefAcqTimes") == 0) && (tagCSA.nitems > 3)  ){
 				if (itemsOK > kMaxEPI3D) {
 					printError("Please increase kMaxEPI3D and recompile\n");
 				} else {
 					float * sliceTimes = (float *)malloc(sizeof(float) * (tagCSA.nitems + 1));
-					csaMultiFloat (&buff[lPos], tagCSA.nitems,sliceTimes, &itemsOK);
+					csaMultiFloat (&buff[lPos], bufferSize, tagCSA.nitems, sliceTimes, &itemsOK);
                  	for (int z = 0; z < kMaxEPI3D; z++)
         				CSA->sliceTiming[z] = -1.0;
                  	for (int z = 0; z < itemsOK; z++)
@@ -1361,9 +1358,9 @@ int readCSAImageHeader(unsigned char *buff, int lLength, struct TCSAdata *CSA, i
 					checkSliceTimes(CSA, itemsOK, isVerbose, is3DAcq);
                 }
             } else if (strcmp(tagCSA.name, "ProtocolSliceNumber") == 0)
-                CSA->protocolSliceNumber1 = (int) round (csaMultiFloat (&buff[lPos], 1,lFloats, &itemsOK));
+                CSA->protocolSliceNumber1 = (int) round (csaMultiFloat (&buff[lPos], bufferSize, 1, lFloats, &itemsOK));
             else if (strcmp(tagCSA.name, "PhaseEncodingDirectionPositive") == 0)
-                CSA->phaseEncodingDirectionPositive = (int) round (csaMultiFloat (&buff[lPos], 1,lFloats, &itemsOK));
+                CSA->phaseEncodingDirectionPositive = (int) round (csaMultiFloat (&buff[lPos], bufferSize, 1, lFloats, &itemsOK));
             for (int lI = 1; lI <= tagCSA.nitems; lI++) {
                 if (lPos + sizeof(itemCSA) > lLength) {
                     break;
