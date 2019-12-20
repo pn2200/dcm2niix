@@ -1297,6 +1297,9 @@ int readCSAImageHeader(unsigned char *buff, int lLength, struct TCSAdata *CSA, i
     int itemsOK;
     float lFloats[7];
     for (int lT = 1; lT <= lnTag; lT++) {
+        if (lPos + sizeof(tagCSA) > lLength) {
+            break;
+        }
         memcpy(&tagCSA, &buff[lPos], sizeof(tagCSA)); //read tag
         lPos +=sizeof(tagCSA);
         // Storage order is always little-endian, so byte-swap required values if necessary
@@ -1362,6 +1365,9 @@ int readCSAImageHeader(unsigned char *buff, int lLength, struct TCSAdata *CSA, i
             else if (strcmp(tagCSA.name, "PhaseEncodingDirectionPositive") == 0)
                 CSA->phaseEncodingDirectionPositive = (int) round (csaMultiFloat (&buff[lPos], 1,lFloats, &itemsOK));
             for (int lI = 1; lI <= tagCSA.nitems; lI++) {
+                if (lPos + sizeof(itemCSA) > lLength) {
+                    break;
+                }
                 memcpy(&itemCSA, &buff[lPos], sizeof(itemCSA));
                 lPos +=sizeof(itemCSA);
                 // Storage order is always little-endian, so byte-swap required values if necessary
