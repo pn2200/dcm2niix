@@ -1177,12 +1177,16 @@ static float csaMultiFloat (unsigned char buff[], int bufferSize, int nItems, fl
     return Floats[1];
 } //csaMultiFloat()
 
-bool csaIsPhaseMap (unsigned char buff[], int nItems) {
+bool csaIsPhaseMap (unsigned char buff[], int bufferSize, int nItems) {
     //returns true if the tag "ImageHistory" has an item named "CC:ComplexAdd"
     TCSAitem itemCSA;
-    if (nItems < 1)  return false;
+    if (nItems < 1 || bufferSize < 0)
+        return false;
     int lPos = 0;
     for (int lI = 1; lI <= nItems; lI++) {
+        if ((lPos + sizeof(itemCSA)) > bufferSize) {
+            return false;
+        }
         memcpy(&itemCSA, &buff[lPos], sizeof(itemCSA));
         lPos +=sizeof(itemCSA);
 
@@ -1191,19 +1195,14 @@ bool csaIsPhaseMap (unsigned char buff[], int nItems) {
             nifti_swap_4bytes(1, &itemCSA.xx2_Len);
 
         if (itemCSA.xx2_Len > 0) {
-//#ifdef _MSC_VER
-            char * cString = (char *)malloc(sizeof(char) * (itemCSA.xx2_Len + 1));
-//#else
- //           char cString[itemCSA.xx2_Len];
-//#endif
-            memcpy(cString, &buff[lPos], sizeof(itemCSA.xx2_Len)); //TPX memcpy(&cString, &buff[lPos], sizeof(cString));
-            lPos += ((itemCSA.xx2_Len +3)/4)*4;
-            //printMessage(" %d item length %d = %s\n",lI, itemCSA.xx2_Len, cString);
-            if (strcmp(cString, "CC:ComplexAdd") == 0)
+            size_t len = strlen("CC:ComplexAdd");
+            if ((lPos + len) > bufferSize) {
+                return false;
+            }
+
+            if (strncmp((const char *)&buff[lPos], "CC:ComplexAdd", len) == 0) {
                 return true;
-//#ifdef _MSC_VER
-            free(cString);
-//#endif
+            }
         }
     } //for each item
     return false;
@@ -1317,7 +1316,7 @@ int readCSAImageHeader(unsigned char *buff, int lLength, struct TCSAdata *CSA, i
 
         if (tagCSA.nitems > 0) {
             if (strcmp(tagCSA.name, "ImageHistory") == 0)
-                CSA->isPhaseMap =  csaIsPhaseMap(&buff[lPos], tagCSA.nitems);
+                CSA->isPhaseMap =  csaIsPhaseMap(&buff[lPos], bufferSize, tagCSA.nitems);
             else if (strcmp(tagCSA.name, "NumberOfImagesInMosaic") == 0)
                 CSA->mosaicSlices = (int) round(csaMultiFloat (&buff[lPos], bufferSize, 1, lFloats, &itemsOK));
             else if (strcmp(tagCSA.name, "B_value") == 0) {
